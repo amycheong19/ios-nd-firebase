@@ -17,7 +17,7 @@
 import UIKit
 import Firebase
 import FirebaseAuthUI
-
+import FirebaseAuth
 // MARK: - AppDelegate: UIResponder, UIApplicationDelegate
 
 @UIApplicationMain
@@ -30,7 +30,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     // MARK: UIApplicationDelegate
     
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplicationLaunchOptionsKey : Any]? = nil) -> Bool {
-        // TODO: - configure FIRApp
+        FIRApp.configure()
+        
         return true
     }
     
