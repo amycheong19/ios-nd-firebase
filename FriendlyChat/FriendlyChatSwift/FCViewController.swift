@@ -17,6 +17,7 @@
 import UIKit
 import Firebase
 import FirebaseAuthUI
+import FirebaseGoogleAuthUI
 
 // MARK: - FCViewController
 
@@ -63,7 +64,9 @@ class FCViewController: UIViewController, UINavigationControllerDelegate {
     
     // MARK: Config
     func configureAuth() {
-
+        //Setup Google as Sign In method
+        FUIAuth.defaultAuthUI()?.providers = [FUIGoogleAuth()]
+        
         // listen for changes in the authorization state
         _authHandle = FIRAuth.auth()?.addStateDidChangeListener { (auth: FIRAuth, user: FIRUser?) in
             // refresh table data
