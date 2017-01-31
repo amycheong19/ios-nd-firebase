@@ -101,7 +101,7 @@ class FCViewController: UIViewController, UINavigationControllerDelegate {
     }
     
     func configureStorage() {
-        // TODO: configure storage using your firebase storage
+        storageRef = FIRStorage.storage().reference()
     }
     
     deinit {
@@ -111,13 +111,35 @@ class FCViewController: UIViewController, UINavigationControllerDelegate {
     }
     
     // MARK: Remote Config
-    
     func configureRemoteConfig() {
-        // TODO: configure remote configuration settings
+        // create remote config setting to enable developer mode
+        let remoteConfigSettings = FIRRemoteConfigSettings(developerModeEnabled: true)
+        remoteConfig = FIRRemoteConfig.remoteConfig()
+        remoteConfig.configSettings = remoteConfigSettings!
     }
     
     func fetchConfig() {
-        // TODO: update to the current coniguratation
+        var expirationDuration: Double = 3600
+        // if in developer mode, set cacheExpiration 0 so each fetch will retrieve values from the server
+        if remoteConfig.configSettings.isDeveloperModeEnabled {
+            expirationDuration = 0
+        }
+        
+        // cacheExpirationSeconds is set to cacheExpiration to make fetching faser in developer mode
+        remoteConfig.fetch(withExpirationDuration: expirationDuration) { (status, error) in
+            if status == .success {
+                print("Config fetched!")
+                self.remoteConfig.activateFetched()
+                let friendlyMsgLength = self.remoteConfig["friendly_msg_length"]
+                if friendlyMsgLength.source != .static {
+                    self.msglength = friendlyMsgLength.numberValue!
+                    print("Friendly msg length config: \(self.msglength)")
+                }
+            } else {
+                print("Config not fetched")
+                print("Error \(error)")
+            }
+        }
     }
     
     // MARK: Sign In and Out
@@ -139,6 +161,8 @@ class FCViewController: UIViewController, UINavigationControllerDelegate {
             messageTextField.delegate = self
             
             configureDatabase()
+            configureStorage()
+            configureRemoteConfig()
         }
     }
     
@@ -160,8 +184,24 @@ class FCViewController: UIViewController, UINavigationControllerDelegate {
         
     }
     
+    // Create method that pushes message w/ photo to the firebase database
     func sendPhotoMessage(photoData: Data) {
-        // TODO: create method that pushes message w/ photo to the firebase database
+        
+        //Build a path using user's ID and timestamp
+        let imagePath = "chat_photos/" + FIRAuth.auth()!.currentUser!.uid + "\(Double(Date.timeIntervalSinceReferenceDate * 1000)).jpg"
+        //Set image type to jpeg
+        let metadata = FIRStorageMetadata()
+        metadata.contentType = "image/jpeg"
+        
+        //Create child node at imagePath with PhotoData and Metadata
+        storageRef.child(imagePath).put(photoData, metadata: metadata) { (metadata: FIRStorageMetadata?, error: Error?) in
+            
+            if let error = error {
+                print("Error loading: \(error)")
+            }
+            //Send to database
+            self.sendMessage(data: [Constants.MessageFields.imageUrl: self.storageRef.child((metadata?.path)!).description])
+        }
     }
     
     // MARK: Alert
@@ -226,7 +266,7 @@ class FCViewController: UIViewController, UINavigationControllerDelegate {
     }
 }
 
-// MARK: - FCViewController: UITableViewDelegate, UITableViewDataSource
+// MARK: - FCViewController: UITableViewDelegate, UITableViewDataSource
 
 extension FCViewController: UITableViewDelegate, UITableViewDataSource {
     
@@ -240,9 +280,33 @@ extension FCViewController: UITableViewDelegate, UITableViewDataSource {
         let messageSnapshot : FIRDataSnapshot = self.messages[indexPath.row]
         let message = messageSnapshot.value as! [String: String]
         let username = message[Constants.MessageFields.name] ?? "[username]"
-        let text = message[Constants.MessageFields.text] ?? "[message]"
-        cell.textLabel?.text = username + ":" + text
-        cell.imageView?.image = self.placeholderImage
+
+        if let imageURL = message[Constants.MessageFields.imageUrl] {
+            cell.textLabel?.text = "sent by: \(username)"
+            //Download and display image
+            FIRStorage.storage().reference(forURL: imageURL).data(withMaxSize: INT64_MAX, completion: { (data: Data?, error: Error?) in
+                guard error == nil else {
+                    print("Error downloading: \(error!)")
+                    return
+                }
+                //Display image
+                let messageImage = UIImage(data: data!, scale: 50)
+                //Check if cell is still on-screen, if so, update cell image
+                if cell == tableView.cellForRow(at: indexPath) {
+                    DispatchQueue.main.async {
+                        cell.imageView?.image = messageImage
+                        cell.setNeedsLayout()
+                    }
+                }
+                
+            })
+        }else {
+            let text = message[Constants.MessageFields.text] ?? "[message]"
+            cell.textLabel?.text = username + ":" + text
+            cell.imageView?.image = self.placeholderImage
+        }
+        
+        
         return cell!
     }
     
@@ -251,7 +315,26 @@ extension FCViewController: UITableViewDelegate, UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-            // TODO: if message contains an image, then display the image
+        // skip if keyboard is shown
+        guard !messageTextField.isFirstResponder else { return }
+        
+        // unpack message from firebase data snapshot
+        let messageSnapshot: FIRDataSnapshot! = messages[(indexPath as NSIndexPath).row]
+        let message = messageSnapshot.value as! [String: String]
+        // if tapped row with image message, then display image
+        if let imageUrl = message[Constants.MessageFields.imageUrl] {
+            if let cachedImage = imageCache.object(forKey: imageUrl as NSString) {
+                showImageDisplay(cachedImage)
+            } else {
+                FIRStorage.storage().reference(forURL: imageUrl).data(withMaxSize: INT64_MAX){ (data, error) in
+                    guard error == nil else {
+                        print("Error downloading: \(error!)")
+                        return
+                    }
+                    self.showImageDisplay(UIImage.init(data: data!)!)
+                }
+            }
+        }
     }
     
     // MARK: Show Image Display
